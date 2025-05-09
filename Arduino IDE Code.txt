@@ -1,1 +1,101 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+#include <DHT.h>
+
+// === LCD Setup ===
+#define LCD_ADDR 0x27
+#define LCD_COLUMNS 16
+#define LCD_ROWS 2
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLUMNS, LCD_ROWS);
+
+// === HC-12 Serial Communication ===
+const uint8_t HC12_RX_PIN = 10;
+const uint8_t HC12_TX_PIN = 11;
+SoftwareSerial hc12(HC12_RX_PIN, HC12_TX_PIN);
+
+// === DHT11 Sensor ===
+#define DHTPIN 2
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+// === MQ-135 Sensor ===
+#define MQ135_PIN A0
+
+// === Rain Sensor ===
+#define RAIN_SENSOR_PIN 3
+
+// === Timing ===
+unsigned long lastSend = 0;
+const unsigned long SEND_INTERVAL = 2000;
+
+void setup() {
+  Serial.begin(9600);
+  hc12.begin(9600);
+
+  dht.begin();
+  Wire.begin();
+  lcd.init();
+  lcd.backlight();
+
+  pinMode(RAIN_SENSOR_PIN, INPUT);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Weather Station");
+  lcd.setCursor(0, 1);
+  lcd.print("Initializing...");
+  delay(2000);
+  lcd.clear();
+}
+
+void loop() {
+  unsigned long now = millis();
+  if (now - lastSend >= SEND_INTERVAL) {
+    lastSend = now;
+
+    // === Sensor Readings ===
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
+    int airQuality = analogRead(MQ135_PIN);
+    bool raining = digitalRead(RAIN_SENSOR_PIN) == LOW;
+
+    // === Handle Read Failures ===
+    if (isnan(temperature) || isnan(humidity)) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Sensor Error!");
+      Serial.println("Failed to read from DHT sensor!");
+      return;
+    }
+
+    // === Format and Send Message ===
+    String message = "T:" + String(temperature, 1) + "C H:" + String(humidity, 1) +
+                     "% AQ:" + String(airQuality) + " R:" + String(raining ? 1 : 0);
+                     
+    hc12.println(message);
+    Serial.println(message);
+
+    // === Display on LCD ===
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("T:");
+    lcd.print(temperature, 1);
+    lcd.print("C H:");
+    lcd.print(humidity, 1);
+    lcd.print("%");
+
+    lcd.setCursor(0, 1);
+    lcd.print("AQ:");
+    lcd.print(airQuality);
+    lcd.print(" R:");
+    lcd.print(raining ? "1" : "0");
+  }
+
+  // === HC-12 Receive (optional) ===
+  if (hc12.available()) {
+    String incoming = hc12.readStringUntil('\n');
+    Serial.print("Received: ");
+    Serial.println(incoming);
+  }
+}
 
